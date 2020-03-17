@@ -87,7 +87,7 @@ namespace SonarScanner.MSBuild.TFS.Tests
             var testDir = Path.GetTempPath();
             var testResultsDir = Path.Combine(testDir, "TestResults");
             Directory.CreateDirectory(testResultsDir);
-            TestUtils.CreateTextFile(testResultsDir, "dummy.trx", "");
+            TestUtils.CreateTextFile(testResultsDir, "dummy2.trx", "");
 
             var testSubject = new BuildVNextCoverageReportProcessor(new MockReportConverter(), new TestLogger(), mockSearchFallback);
 
