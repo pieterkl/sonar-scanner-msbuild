@@ -50,6 +50,8 @@ namespace SonarScanner.MSBuild.PreProcessor
 
         public WebClientDownloader(string userName, string password, ILogger logger)
         {
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
+
             this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             if (password == null)
