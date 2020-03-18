@@ -288,7 +288,7 @@ namespace SonarScanner.MSBuild.PreProcessor
             return encodedUrl;
         }
 
-        private async Task<T> DoLogExceptions<T>(Func<Task<T>> op, string url, Action<Exception> onError = null)
+        private async Task<T> DoLogExceptions<T>(Func<Task<T>> op, string url)
         {
             try
             {
@@ -296,8 +296,6 @@ namespace SonarScanner.MSBuild.PreProcessor
             }
             catch (Exception e)
             {
-                onError?.Invoke(e);
-
                 this.logger.LogError("Failed to request and parse '{0}': {1}", url, e.Message);
                 throw;
             }
@@ -320,10 +318,10 @@ namespace SonarScanner.MSBuild.PreProcessor
             this.logger.LogDebug(Resources.MSG_FetchingProjectProperties, projectId, ws);
             var result = await DoLogExceptions(async () =>
             {
-                var contents = await this.downloader.Download(ws);
+                var contents = await this.downloader.Download(ws, true);
                 var properties = JArray.Parse(contents);
                 return properties.ToDictionary(p => p["key"].ToString(), p => p["value"].ToString());
-            }, ws, LogPermissionRequired);
+            }, ws);
 
             return CheckTestProjectPattern(result);
         }
@@ -333,17 +331,17 @@ namespace SonarScanner.MSBuild.PreProcessor
             var ws = GetUrl("/api/settings/values?component={0}", projectId);
             this.logger.LogDebug(Resources.MSG_FetchingProjectProperties, projectId, ws);
 
-            var projectFound = await DoLogExceptions(async () => await this.downloader.TryDownloadIfExists(ws), ws, LogPermissionRequired);
+            var projectFound = await DoLogExceptions(async() => await this.downloader.TryDownloadIfExists(ws, true), ws);
             var contents = projectFound.Item2;
 
             if (!projectFound.Item1)
             {
                 ws = GetUrl("/api/settings/values");
                 this.logger.LogDebug("No settings for project {0}. Getting global settings: {1}", projectId, ws);
-                contents = await DoLogExceptions(async () => await this.downloader.Download(ws), ws);
+                contents = await DoLogExceptions(async() => await this.downloader.Download(ws), ws);
             }
 
-            return await DoLogExceptions(async () => ParseSettingsResponse(contents), ws);
+            return await DoLogExceptions(async() => ParseSettingsResponse(contents), ws);
         }
 
         private Dictionary<string, string> ParseSettingsResponse(string contents)
@@ -450,16 +448,6 @@ namespace SonarScanner.MSBuild.PreProcessor
         private string EscapeQuery(string format, params string[] args)
         {
             return string.Format(System.Globalization.CultureInfo.InvariantCulture, format, args.Select(a => WebUtility.UrlEncode(a)).ToArray());
-        }
-
-        private void LogPermissionRequired(Exception e)
-        {
-            if (e is WebException exception &&
-                exception.Response is HttpWebResponse response &&
-                response.StatusCode == HttpStatusCode.Forbidden)
-            {
-                this.logger.LogWarning("To analyze private projects make sure the scanner user has 'Browse' permission.");
-            }
         }
 
         #endregion Private methods

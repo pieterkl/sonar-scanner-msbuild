@@ -19,6 +19,7 @@
  */
 
 using System;
+using System.Net.Http;
 using System.Threading.Tasks;
 
 namespace SonarScanner.MSBuild.PreProcessor
@@ -33,7 +34,7 @@ namespace SonarScanner.MSBuild.PreProcessor
         /// </summary>
         /// <returns>False if the url does not exist, true if the contents were downloaded successfully.
         /// Exceptions are thrown for other web failures.</returns>
-        Task<Tuple<bool, string>> TryDownloadIfExists(string url);
+        Task<Tuple<bool, string>> TryDownloadIfExists(string url, bool logPermissionDenied = false);
 
         /// <summary>
         /// Attempts to download the specified file
@@ -41,8 +42,8 @@ namespace SonarScanner.MSBuild.PreProcessor
         /// <param name="targetFilePath">The file to which the downloaded data should be saved</param>
         /// <returns>False if the url does not exist, true if the data was downloaded successfully.
         /// Exceptions are thrown for other web failures.</returns>
-        Task<bool> TryDownloadFileIfExists(string url, string targetFilePath);
+        Task<bool> TryDownloadFileIfExists(string url, string targetFilePath, bool logPermissionDenied = false);
 
-        Task<string> Download(string url);
+        Task<string> Download(string url, bool logPermissionDenied = false);
     }
 }

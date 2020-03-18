@@ -32,21 +32,7 @@ namespace SonarScanner.MSBuild.PreProcessor
     public class WebClientDownloader : IDownloader
     {
         private readonly ILogger logger;
-        private readonly PersistentUserAgentHttpClient client;
-
-        // WebClient resets certain headers after each request: Accept, Connection, Content-Type, Expect, Referer, User-Agent.
-        // This class keeps the User Agent across requests.
-        // See https://github.com/SonarSource/sonar-scanner-msbuild/issues/459
-        private class PersistentUserAgentHttpClient : HttpClient
-        {
-            public string UserAgent { get; private set; }
-
-            public PersistentUserAgentHttpClient(string userAgent)
-            {
-                UserAgent = userAgent;
-                this.DefaultRequestHeaders.Add(HttpRequestHeader.UserAgent.ToString(), userAgent);
-            }
-        }
+        private readonly HttpClient client;
 
         public WebClientDownloader(string userName, string password, ILogger logger)
         {
@@ -59,7 +45,8 @@ namespace SonarScanner.MSBuild.PreProcessor
                 password = "";
             }
 
-            this.client = new PersistentUserAgentHttpClient($"ScannerMSBuild/{Utilities.ScannerVersion}");
+            this.client = new HttpClient();
+            this.client.DefaultRequestHeaders.Add(HttpRequestHeader.UserAgent.ToString(), $"ScannerMSBuild/{Utilities.ScannerVersion}");
 
             if (userName != null)
             {
@@ -80,7 +67,7 @@ namespace SonarScanner.MSBuild.PreProcessor
 
         public string GetHeader(HttpRequestHeader header)
         {
-            if(this.client.DefaultRequestHeaders.Contains(header.ToString()))
+            if (this.client.DefaultRequestHeaders.Contains(header.ToString()))
             {
                 return string.Join(";", this.client.DefaultRequestHeaders.GetValues(header.ToString()));
             }
@@ -90,31 +77,58 @@ namespace SonarScanner.MSBuild.PreProcessor
 
         #region IDownloaderMethods
 
-        public async Task<Tuple<bool, string>> TryDownloadIfExists(string url)
+        public async Task<Tuple<bool, string>> TryDownloadIfExists(string url, bool logPermissionDenied = false)
         {
             this.logger.LogDebug(Resources.MSG_Downloading, url);
-            string data = null;
-            var success = await DoIgnoringMissingUrls(async () => data = await this.client.GetStringAsync(url));
-            return new Tuple<bool, string>(success, data);
+            var response = await this.client.GetAsync(url);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return new Tuple<bool, string>(false, null);
+            }
+            else if(logPermissionDenied && response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                this.logger.LogWarning(Resources.MSG_Forbidden_BrowsePermission);
+                return new Tuple<bool, string>(false, null);
+            }
+            else
+            {
+                return new Tuple<bool, string>(true, await response.Content.ReadAsStringAsync());
+            }
         }
 
-        public async Task<bool> TryDownloadFileIfExists(string url, string targetFilePath)
+        public async Task<bool> TryDownloadFileIfExists(string url, string targetFilePath, bool logPermissionDenied = false)
         {
             this.logger.LogDebug(Resources.MSG_DownloadingFile, url, targetFilePath);
-            return await DoIgnoringMissingUrls(async () =>
+            var response = await this.client.GetAsync(url);
+            if (response.StatusCode == HttpStatusCode.NotFound)
             {
-                using(var contentStream = await this.client.GetStreamAsync(url))
-                using (var fileStream = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write))
-                {
-                    await contentStream.CopyToAsync(fileStream);
-                }
-            });
+                return false;
+            }
+            else if (logPermissionDenied && response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                this.logger.LogWarning(Resources.MSG_Forbidden_BrowsePermission);
+                return false;
+            }
+
+            using (var contentStream = await response.Content.ReadAsStreamAsync())
+            using (var fileStream = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write))
+            {
+                await contentStream.CopyToAsync(fileStream);
+                return true;
+            }
         }
 
-        public async Task<string> Download(string url)
+        public async Task<string> Download(string url, bool logPermissionDenied = false)
         {
             this.logger.LogDebug(Resources.MSG_Downloading, url);
-            return await this.client.GetStringAsync(url);
+            var response = await this.client.GetAsync(url);
+            if (logPermissionDenied && response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                this.logger.LogWarning(Resources.MSG_Forbidden_BrowsePermission);
+                return null;
+            }
+
+            return await response.Content.ReadAsStringAsync();
         }
 
         #endregion IDownloaderMethods
@@ -124,28 +138,6 @@ namespace SonarScanner.MSBuild.PreProcessor
         private static bool IsAscii(string s)
         {
             return !s.Any(c => c > sbyte.MaxValue);
-        }
-
-        /// <summary>
-        /// Performs the specified web operation
-        /// </summary>
-        /// <returns>True if the operation completed successfully, false if the url could not be found.
-        /// Other web failures will be thrown as exceptions.</returns>
-        private static async Task<bool> DoIgnoringMissingUrls(Func<Task> op)
-        {
-            try
-            {
-                await op();
-                return true;
-            }
-            catch (WebException e)
-            {
-                if (e.Response is HttpWebResponse response && response.StatusCode == HttpStatusCode.NotFound)
-                {
-                    return false;
-                }
-                throw;
-            }
         }
 
         #endregion Private methods
