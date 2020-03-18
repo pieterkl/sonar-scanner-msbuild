@@ -332,9 +332,10 @@ namespace SonarScanner.MSBuild.PreProcessor
             this.logger.LogDebug(Resources.MSG_FetchingProjectProperties, projectId, ws);
 
             var projectFound = await DoLogExceptions(async() => await this.downloader.TryDownloadIfExists(ws, true), ws);
-            var contents = projectFound.Item2;
 
-            if (!projectFound.Item1)
+            var contents = projectFound?.Item2;
+
+            if (projectFound != null && !projectFound.Item1)
             {
                 ws = GetUrl("/api/settings/values");
                 this.logger.LogDebug("No settings for project {0}. Getting global settings: {1}", projectId, ws);

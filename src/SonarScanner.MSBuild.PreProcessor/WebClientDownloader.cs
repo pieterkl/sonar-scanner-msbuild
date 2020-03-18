@@ -45,8 +45,11 @@ namespace SonarScanner.MSBuild.PreProcessor
                 password = "";
             }
 
-            this.client = new HttpClient();
-            this.client.DefaultRequestHeaders.Add(HttpRequestHeader.UserAgent.ToString(), $"ScannerMSBuild/{Utilities.ScannerVersion}");
+            if (this.client == null)
+            {
+                this.client = new HttpClient();
+                this.client.DefaultRequestHeaders.Add(HttpRequestHeader.UserAgent.ToString(), $"ScannerMSBuild/{Utilities.ScannerVersion}");
+            }
 
             if (userName != null)
             {
@@ -81,54 +84,78 @@ namespace SonarScanner.MSBuild.PreProcessor
         {
             this.logger.LogDebug(Resources.MSG_Downloading, url);
             var response = await this.client.GetAsync(url);
-            if (response.StatusCode == HttpStatusCode.NotFound)
-            {
-                return new Tuple<bool, string>(false, null);
-            }
-            else if(logPermissionDenied && response.StatusCode == HttpStatusCode.Forbidden)
-            {
-                this.logger.LogWarning(Resources.MSG_Forbidden_BrowsePermission);
-                return new Tuple<bool, string>(false, null);
-            }
-            else
+
+            if (response.IsSuccessStatusCode)
             {
                 return new Tuple<bool, string>(true, await response.Content.ReadAsStringAsync());
             }
+
+            switch (response.StatusCode)
+            {
+                case HttpStatusCode.NotFound:
+                    return new Tuple<bool, string>(false, null);
+                case HttpStatusCode.Forbidden:
+                    if (logPermissionDenied)
+                        this.logger.LogWarning(Resources.MSG_Forbidden_BrowsePermission);
+                    response.EnsureSuccessStatusCode();
+                    break;
+                default:
+                    response.EnsureSuccessStatusCode();
+                    break;
+            }
+
+            return new Tuple<bool, string>(false, null);
         }
 
         public async Task<bool> TryDownloadFileIfExists(string url, string targetFilePath, bool logPermissionDenied = false)
         {
             this.logger.LogDebug(Resources.MSG_DownloadingFile, url, targetFilePath);
             var response = await this.client.GetAsync(url);
-            if (response.StatusCode == HttpStatusCode.NotFound)
+
+            if (response.IsSuccessStatusCode)
             {
-                return false;
-            }
-            else if (logPermissionDenied && response.StatusCode == HttpStatusCode.Forbidden)
-            {
-                this.logger.LogWarning(Resources.MSG_Forbidden_BrowsePermission);
-                return false;
+                using (var contentStream = await response.Content.ReadAsStreamAsync())
+                using (var fileStream = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write))
+                {
+                    await contentStream.CopyToAsync(fileStream);
+                    return true;
+                }
             }
 
-            using (var contentStream = await response.Content.ReadAsStreamAsync())
-            using (var fileStream = new FileStream(targetFilePath, FileMode.Create, FileAccess.Write))
+            switch (response.StatusCode)
             {
-                await contentStream.CopyToAsync(fileStream);
-                return true;
+                case HttpStatusCode.NotFound:
+                    return false;
+                case HttpStatusCode.Forbidden:
+                    if (logPermissionDenied)
+                        this.logger.LogWarning(Resources.MSG_Forbidden_BrowsePermission);
+                    response.EnsureSuccessStatusCode();
+                    break;
+                default:
+                    response.EnsureSuccessStatusCode();
+                    break;
             }
+
+            return false;
         }
 
         public async Task<string> Download(string url, bool logPermissionDenied = false)
         {
             this.logger.LogDebug(Resources.MSG_Downloading, url);
             var response = await this.client.GetAsync(url);
+
+            if(response.IsSuccessStatusCode)
+            {
+                return await response.Content.ReadAsStringAsync();
+            }
+
             if (logPermissionDenied && response.StatusCode == HttpStatusCode.Forbidden)
             {
                 this.logger.LogWarning(Resources.MSG_Forbidden_BrowsePermission);
-                return null;
+                response.EnsureSuccessStatusCode();
             }
 
-            return await response.Content.ReadAsStringAsync();
+            return null;
         }
 
         #endregion IDownloaderMethods

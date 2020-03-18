@@ -23,6 +23,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -708,20 +709,18 @@ namespace SonarScanner.MSBuild.PreProcessor.UnitTests
 
             var downloaderMock = new Mock<IDownloader>();
             downloaderMock
-                .Setup(x => x.Download($"{serverUrl}/api/server/version"))
+                .Setup(x => x.Download($"{serverUrl}/api/server/version", false))
                 .Returns(Task.FromResult("1.2.3.4"));
             downloaderMock
-                .Setup(x => x.Download($"{serverUrl}/api/properties?resource={projectKey}"))
-                .Throws(new WebException("Forbidden", new Exception(), WebExceptionStatus.ConnectionClosed, responseMock.Object));
+                .Setup(x => x.Download($"{serverUrl}/api/properties?resource={projectKey}", true))
+                .Throws(new HttpRequestException("Forbidden"));
 
             var service = new SonarWebService(downloaderMock.Object, serverUrl, this.logger);
 
             Func<Task> action = async() => await service.GetProperties(projectKey, null);
-            action.Should().Throw<WebException>();
+            action.Should().Throw<HttpRequestException>();
 
             this.logger.Errors.Should().HaveCount(1);
-            this.logger.Warnings.Should().HaveCount(1);
-            this.logger.Warnings[0].Should().Be("To analyze private projects make sure the scanner user has 'Browse' permission.");
         }
 
         [TestMethod]
@@ -730,26 +729,21 @@ namespace SonarScanner.MSBuild.PreProcessor.UnitTests
             const string serverUrl = "http://localhost";
             const string projectKey = "my-project";
 
-            var responseMock = new Mock<HttpWebResponse>();
-            responseMock.SetupGet(x => x.StatusCode).Returns(HttpStatusCode.Forbidden);
-
             var downloaderMock = new Mock<IDownloader>();
             downloaderMock
-                .Setup(x => x.Download($"{serverUrl}/api/server/version"))
+                .Setup(x => x.Download($"{serverUrl}/api/server/version", false))
                 .Returns(Task.FromResult("6.3.0.0"));
 
             downloaderMock
-                .Setup(x => x.TryDownloadIfExists($"{serverUrl}/api/settings/values?component={projectKey}"))
-                .Throws(new WebException("Forbidden", new Exception(), WebExceptionStatus.ConnectionClosed, responseMock.Object));
+                .Setup(x => x.TryDownloadIfExists($"{serverUrl}/api/settings/values?component={projectKey}", true))
+                .Throws(new HttpRequestException("Forbidden"));
 
             var service = new SonarWebService(downloaderMock.Object, serverUrl, this.logger);
 
             Action action = () => _ = service.GetProperties(projectKey, null).Result;
-            action.Should().Throw<WebException>();
+            action.Should().Throw<HttpRequestException>();
 
             this.logger.Errors.Should().HaveCount(1);
-            this.logger.Warnings.Should().HaveCount(1);
-            this.logger.Warnings[0].Should().Be("To analyze private projects make sure the scanner user has 'Browse' permission.");
         }
 
         private sealed class TestDownloader : IDownloader
@@ -757,7 +751,7 @@ namespace SonarScanner.MSBuild.PreProcessor.UnitTests
             public IDictionary<string, string> Pages = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
             public List<string> AccessedUrls = new List<string>();
 
-            public Task<Tuple<bool, string>> TryDownloadIfExists(string url)
+            public Task<Tuple<bool, string>> TryDownloadIfExists(string url, bool logPermissionDenied = false)
             {
                 this.AccessedUrls.Add(url);
                 if (this.Pages.ContainsKey(url))
@@ -770,7 +764,7 @@ namespace SonarScanner.MSBuild.PreProcessor.UnitTests
                 }
             }
 
-            public Task<string> Download(string url)
+            public Task<string> Download(string url, bool logPermissionDenied = false)
             {
                 this.AccessedUrls.Add(url);
                 if (this.Pages.ContainsKey(url))
@@ -780,7 +774,7 @@ namespace SonarScanner.MSBuild.PreProcessor.UnitTests
                 throw new ArgumentException("Cannot find URL " + url);
             }
 
-            public Task<bool> TryDownloadFileIfExists(string url, string targetFilePath)
+            public Task<bool> TryDownloadFileIfExists(string url, string targetFilePath, bool logPermissionDenied = false)
             {
                 this.AccessedUrls.Add(url);
 
