@@ -57,7 +57,7 @@ dotnet tool install --global dotnet-sonarscanner
 ## Use
 There are two versions of the SonarScanner for MSBuild.
 
-The first version is based on the “classic” .NET Framework. To use it, execute the following commands from the root folder of your project:
+The first version is based on the "classic" .NET Framework. To use it, execute the following commands from the root folder of your project:
 ```
 SonarScanner.MSBuild.exe begin /k:"project-key" <!-- sonarcloud -->/o:"<organization>" /d:sonar.login="<token>" <!-- /sonarcloud -->
 MSBuild.exe <path to solution.sln> /t:Rebuild
