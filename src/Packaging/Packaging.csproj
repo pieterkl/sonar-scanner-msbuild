@@ -93,7 +93,7 @@
 
 
   <!-- Packaging Logic -->
-  <UsingTask TaskName="DownloadFile" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll">
+  <UsingTask TaskName="DownloadFile" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>
       <Url ParameterType="System.String" Required="true" />
       <File ParameterType="System.String" Required="false" />
@@ -130,8 +130,7 @@
     <Message Condition="$(ARTIFACTORY_URL)==''" Importance="high" Text="Environment variable ARTIFACTORY_URL is not set. Using default value." />
 
     <Message Importance="high" Text="Begin downloading scanner cli version $(ScannerCliVersion)" />
-    <Message Importance="high" Text="  Downloading from $(MavenCentralUrl)" />
-    <DownloadFile Url="$(MavenCentralUrl)" OutputFolder="$(BuildAgentPayloadDir)" />
+    <!--DownloadFile Url="$(MavenCentralUrl)" OutputFolder="$(BuildAgentPayloadDir)" /-->
     <Message Importance="high" Text="End downloading scanner cli" />
   </Target>
 
@@ -256,10 +255,7 @@
   </Target>
 
   <Target Name="UnzipScannerCli">
-    <Message Importance="high" Text="Unzipping ScannerCli:" />
-    <Message Importance="high" Text="  Source: $(BuildAgentPayloadDir)$(ScannerCliArtifact)" />
-    <Message Importance="high" Text="  Target: $(WorkDestinationDir)" />
-    <CustomUnzip SourcePath="$(BuildAgentPayloadDir)" SourceFileName="$(ScannerCliArtifact)" TargetPath="$(WorkDestinationDir)" />
+    <!--Exec Command="powershell.exe -executionpolicy bypass -command &quot;Add-Type -assembly system.io.compression.filesystem; [io.compression.zipfile]::ExtractToDirectory('$(BuildAgentPayloadDir)$(ScannerCliArtifact)', '$(WorkDestinationDir)')&quot;" /-->
   </Target>
 
   <Target Name="SignDlls" Condition="'$(SignAssembly)' == 'true'">
