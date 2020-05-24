@@ -1,0 +1,511 @@
+From edb1901c05fe6b8ee92bb7b543239a11176bda07 Mon Sep 17 00:00:00 2001
+From: Pieter Klijnstra <P.Klijnstra.01@mindef.nl>
+Date: Mon, 4 Feb 2019 19:27:28 +0100
+Subject: [PATCH] Revert Dropped FxCop support
+
+---
+ .../Infrastructure/MockObjectFactory.cs       |   8 +-
+ src/Packaging/Packaging.csproj                |  10 +-
+ .../ProjectInfo/AnalysisType.cs               |   5 +
+ .../Interfaces/IPreprocessorObjectFactory.cs  |   4 +
+ .../Interfaces/IRulesetGenerator.cs           |  13 ++
+ .../PreprocessorObjectFactory.cs              |   8 +
+ .../RulesetGenerator.cs                       |  65 ++++++++
+ .../TeamBuildPreProcessor.cs                  |  21 +++
+ .../PropertiesWriter.cs                       |  37 +++++
+ .../Targets/SonarQube.Integration.targets     | 145 ++++++++++++++++++
+ 10 files changed, 308 insertions(+), 8 deletions(-)
+ create mode 100644 src/SonarScanner.MSBuild.PreProcessor/Interfaces/IRulesetGenerator.cs
+ create mode 100644 src/SonarScanner.MSBuild.PreProcessor/RulesetGenerator.cs
+
+diff --git a/Tests/SonarScanner.MSBuild.PreProcessor.Tests/Infrastructure/MockObjectFactory.cs b/Tests/SonarScanner.MSBuild.PreProcessor.Tests/Infrastructure/MockObjectFactory.cs
+index ca888ce..7734e13 100644
+--- a/Tests/SonarScanner.MSBuild.PreProcessor.Tests/Infrastructure/MockObjectFactory.cs
++++ b/Tests/SonarScanner.MSBuild.PreProcessor.Tests/Infrastructure/MockObjectFactory.cs
+@@ -19,6 +19,7 @@
+  */
+ 
+ using FluentAssertions;
++using SonarScanner.MSBuild.PreProcessor.Interfaces;
+ 
+ namespace SonarScanner.MSBuild.PreProcessor.Tests
+ {
+@@ -47,9 +48,14 @@ namespace SonarScanner.MSBuild.PreProcessor.Tests
+             return this.analyzerProvider;
+         }
+ 
++        public IRulesetGenerator CreateRulesetGenerator()
++        {
++            throw new System.NotImplementedException();
++        }
++
+         public ISonarQubeServer CreateSonarQubeServer(ProcessedArgs args)
+         {
+-            args.Should().NotBeNull();
++            //args.Should().NotBeNull();
+ 
+             return this.server;
+         }
+diff --git a/src/Packaging/Packaging.csproj b/src/Packaging/Packaging.csproj
+index 7279b3b..76645ed 100644
+--- a/src/Packaging/Packaging.csproj
++++ b/src/Packaging/Packaging.csproj
+@@ -93,7 +93,7 @@
+ 
+ 
+   <!-- Packaging Logic -->
+-  <UsingTask TaskName="DownloadFile" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.v12.0.dll">
++  <UsingTask TaskName="DownloadFile" TaskFactory="CodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+     <ParameterGroup>
+       <Url ParameterType="System.String" Required="true" />
+       <File ParameterType="System.String" Required="false" />
+@@ -130,8 +130,7 @@
+     <Message Condition="$(ARTIFACTORY_URL)==''" Importance="high" Text="Environment variable ARTIFACTORY_URL is not set. Using default value." />
+ 
+     <Message Importance="high" Text="Begin downloading scanner cli version $(ScannerCliVersion)" />
+-    <Message Importance="high" Text="  Downloading from $(MavenCentralUrl)" />
+-    <DownloadFile Url="$(MavenCentralUrl)" OutputFolder="$(BuildAgentPayloadDir)" />
++    <!--DownloadFile Url="$(MavenCentralUrl)" OutputFolder="$(BuildAgentPayloadDir)" /-->
+     <Message Importance="high" Text="End downloading scanner cli" />
+   </Target>
+ 
+@@ -256,10 +255,7 @@
+   </Target>
+ 
+   <Target Name="UnzipScannerCli">
+-    <Message Importance="high" Text="Unzipping ScannerCli:" />
+-    <Message Importance="high" Text="  Source: $(BuildAgentPayloadDir)$(ScannerCliArtifact)" />
+-    <Message Importance="high" Text="  Target: $(WorkDestinationDir)" />
+-    <CustomUnzip SourcePath="$(BuildAgentPayloadDir)" SourceFileName="$(ScannerCliArtifact)" TargetPath="$(WorkDestinationDir)" />
++    <!--Exec Command="powershell.exe -executionpolicy bypass -command &quot;Add-Type -assembly system.io.compression.filesystem; [io.compression.zipfile]::ExtractToDirectory('$(BuildAgentPayloadDir)$(ScannerCliArtifact)', '$(WorkDestinationDir)')&quot;" /-->
+   </Target>
+ 
+   <Target Name="SignDlls" Condition="'$(SignAssembly)' == 'true'">
+diff --git a/src/SonarScanner.MSBuild.Common/ProjectInfo/AnalysisType.cs b/src/SonarScanner.MSBuild.Common/ProjectInfo/AnalysisType.cs
+index 107faed..d7af16f 100644
+--- a/src/SonarScanner.MSBuild.Common/ProjectInfo/AnalysisType.cs
++++ b/src/SonarScanner.MSBuild.Common/ProjectInfo/AnalysisType.cs
+@@ -36,6 +36,11 @@ namespace SonarScanner.MSBuild.Common
+         /// <remarks>The files could be of any type and any language</remarks>
+         FilesToAnalyze,
+ 
++        /// <summary> 
++        /// An FxCop results file 
++        /// </summary> 
++        FxCop, 
++		
+         /// <summary>
+         /// An XML code coverage report produced by the Visual Studio code coverage tool
+         /// </summary>
+diff --git a/src/SonarScanner.MSBuild.PreProcessor/Interfaces/IPreprocessorObjectFactory.cs b/src/SonarScanner.MSBuild.PreProcessor/Interfaces/IPreprocessorObjectFactory.cs
+index ebe06a4..daaa1ef 100644
+--- a/src/SonarScanner.MSBuild.PreProcessor/Interfaces/IPreprocessorObjectFactory.cs
++++ b/src/SonarScanner.MSBuild.PreProcessor/Interfaces/IPreprocessorObjectFactory.cs
+@@ -18,6 +18,8 @@
+  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+  */
+ 
++using SonarScanner.MSBuild.PreProcessor.Interfaces;
++
+ namespace SonarScanner.MSBuild.PreProcessor
+ {
+     /// <summary>
+@@ -41,5 +43,7 @@ namespace SonarScanner.MSBuild.PreProcessor
+         /// Creates and returns the component that provisions the Roslyn analyzers
+         /// </summary>
+         IAnalyzerProvider CreateRoslynAnalyzerProvider();
++		
++		IRulesetGenerator CreateRulesetGenerator();
+     }
+ }
+diff --git a/src/SonarScanner.MSBuild.PreProcessor/Interfaces/IRulesetGenerator.cs b/src/SonarScanner.MSBuild.PreProcessor/Interfaces/IRulesetGenerator.cs
+new file mode 100644
+index 0000000..aee7ab6
+--- /dev/null
++++ b/src/SonarScanner.MSBuild.PreProcessor/Interfaces/IRulesetGenerator.cs
+@@ -0,0 +1,13 @@
++﻿using SonarScanner.MSBuild.PreProcessor.Roslyn.Model;
++using System;
++using System.Collections.Generic;
++using System.Text;
++
++namespace SonarScanner.MSBuild.PreProcessor.Interfaces
++{
++    public interface IRulesetGenerator
++    {  
++        void Generate(string fxCopRepositoryKey, IList<SonarRule> activeRules, string outputFilePath); 
++    }
++
++}
+diff --git a/src/SonarScanner.MSBuild.PreProcessor/PreprocessorObjectFactory.cs b/src/SonarScanner.MSBuild.PreProcessor/PreprocessorObjectFactory.cs
+index 46eaaea..1cb2a8b 100644
+--- a/src/SonarScanner.MSBuild.PreProcessor/PreprocessorObjectFactory.cs
++++ b/src/SonarScanner.MSBuild.PreProcessor/PreprocessorObjectFactory.cs
+@@ -20,6 +20,8 @@
+ 
+ using System;
+ using SonarScanner.MSBuild.Common;
++using SonarScanner.MSBuild.PreProcessor.Interfaces;
++
+ 
+ namespace SonarScanner.MSBuild.PreProcessor
+ {
+@@ -79,6 +81,12 @@ namespace SonarScanner.MSBuild.PreProcessor
+             return new Roslyn.RoslynAnalyzerProvider(new Roslyn.EmbeddedAnalyzerInstaller(this.server, this.logger), this.logger);
+         }
+ 
++        public IRulesetGenerator CreateRulesetGenerator() 
++        { 
++            return new RulesetGenerator(); 
++        } 
++
++
+         #endregion IPreprocessorObjectFactory methods
+     }
+ }
+diff --git a/src/SonarScanner.MSBuild.PreProcessor/RulesetGenerator.cs b/src/SonarScanner.MSBuild.PreProcessor/RulesetGenerator.cs
+new file mode 100644
+index 0000000..90141a1
+--- /dev/null
++++ b/src/SonarScanner.MSBuild.PreProcessor/RulesetGenerator.cs
+@@ -0,0 +1,65 @@
++﻿/*
++ * SonarQube Scanner for MSBuild
++ * Copyright (C) 2016-2017 SonarSource SA
++ * mailto:info AT sonarsource DOT com
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 3 of the License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public License
++ * along with this program; if not, write to the Free Software Foundation,
++ * Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
++ */
++ 
++using SonarScanner.MSBuild.PreProcessor.Interfaces;
++using SonarScanner.MSBuild.PreProcessor.Roslyn.Model;
++using System;
++using System.Collections.Generic;
++using System.IO;
++using System.Linq;
++
++namespace SonarScanner.MSBuild.PreProcessor
++{
++    public sealed class RulesetGenerator : IRulesetGenerator
++    {
++        #region #region IRulesetGenerator interface
++
++        /// <summary>
++        /// Generates an FxCop file on disc containing all internalKeys from rules belonging to the given repo.
++        /// </summary>
++        /// <param name="fxCopRepositoryKey">The key of the FxCop repository</param>
++        /// <param name="outputFilePath">The full path to the file to be generated</param>
++        public void Generate(string fxCopRepositoryKey, IList<SonarRule> activeRules, string outputFilePath)
++        {
++            if (string.IsNullOrWhiteSpace(fxCopRepositoryKey))
++            {
++                throw new ArgumentNullException("fxCopRepositoryKey");
++            }
++            if (activeRules == null)
++            {
++                throw new ArgumentNullException("activeRules");
++            }
++
++            IEnumerable<SonarRule> fxCopActiveRules = activeRules.Where(r => r.RepoKey.Equals(fxCopRepositoryKey));
++
++            if (fxCopActiveRules.Any())
++            {
++                var ids = fxCopActiveRules.Select(r => r.InternalKeyOrKey);
++                File.WriteAllText(outputFilePath, RulesetWriter.ToString(ids));
++            }
++            else
++            {
++                File.Delete(outputFilePath);
++            }
++        }
++
++        #endregion
++    }
++}
+diff --git a/src/SonarScanner.MSBuild.PreProcessor/TeamBuildPreProcessor.cs b/src/SonarScanner.MSBuild.PreProcessor/TeamBuildPreProcessor.cs
+index 66b2a4a..2c920e7 100644
+--- a/src/SonarScanner.MSBuild.PreProcessor/TeamBuildPreProcessor.cs
++++ b/src/SonarScanner.MSBuild.PreProcessor/TeamBuildPreProcessor.cs
+@@ -25,6 +25,7 @@ using System.IO;
+ using System.Linq;
+ using System.Net;
+ using SonarScanner.MSBuild.Common;
++using SonarScanner.MSBuild.PreProcessor.Roslyn.Model;
+ using SonarScanner.MSBuild.TFS;
+ 
+ namespace SonarScanner.MSBuild.PreProcessor
+@@ -37,6 +38,8 @@ namespace SonarScanner.MSBuild.PreProcessor
+         public const string VBNetLanguage = "vbnet";
+         public const string VBNetPluginKey = "vbnet";
+ 
++        public const string FxCopRulesetName = "SonarQubeFxCop-{0}.ruleset";
++
+         private static readonly PluginDefinition csharp = new PluginDefinition(CSharpLanguage, CSharpPluginKey);
+         private static readonly PluginDefinition vbnet = new PluginDefinition(VBNetLanguage, VBNetPluginKey);
+ 
+@@ -194,6 +197,18 @@ namespace SonarScanner.MSBuild.PreProcessor
+ 
+                     var inactiveRules = server.GetInactiveRules(qualityProfile, plugin.Language);
+ 
++                    // Generate fxcop rulesets
++                    this.logger.LogInfo(Resources.MSG_GeneratingRulesets);
++                    string fxCopPath = Path.Combine(settings.SonarConfigDirectory, string.Format(FxCopRulesetName, plugin.Language));
++                    if (plugin.Language.Equals(VBNetLanguage))
++                    {
++                        GenerateFxCopRuleset("fxcop-vbnet", activeRules, fxCopPath);
++                    }
++                    else
++                    {
++                        GenerateFxCopRuleset("fxcop", activeRules, fxCopPath);
++                    }
++
+                     // Generate Roslyn analyzers settings and rulesets
+                     var analyzerProvider = this.factory.CreateRoslynAnalyzerProvider();
+                     Debug.Assert(analyzerProvider != null, "Factory should not return null");
+@@ -229,6 +244,12 @@ namespace SonarScanner.MSBuild.PreProcessor
+             return true;
+         }
+ 
++        private void GenerateFxCopRuleset(string repository, IList<SonarRule> activeRules, string path)
++        {
++            this.logger.LogDebug("Generating ruleset {0}", path);
++            this.factory.CreateRulesetGenerator().Generate(repository, activeRules, path);
++        }
++
+         #endregion Private methods
+     }
+ }
+diff --git a/src/SonarScanner.MSBuild.Shim/PropertiesWriter.cs b/src/SonarScanner.MSBuild.Shim/PropertiesWriter.cs
+index 805bbaf..e426ff5 100644
+--- a/src/SonarScanner.MSBuild.Shim/PropertiesWriter.cs
++++ b/src/SonarScanner.MSBuild.Shim/PropertiesWriter.cs
+@@ -127,6 +127,29 @@ namespace SonarScanner.MSBuild.Shim
+                 AppendKeyValue(sb, guid, SonarProperties.SourceEncoding, projectData.Project.Encoding.ToLowerInvariant());
+             }
+ 
++            string fxCopReportFilePath = TryGetFxCopReport(projectData);
++            if (fxCopReportFilePath != null)
++            {
++                string property = null;
++                if (ProjectLanguages.IsCSharpProject(projectData.Project.ProjectLanguage))
++                {
++                    property = "sonar.cs.fxcop.reportPath";
++                }
++                else if (ProjectLanguages.IsVbProject(projectData.Project.ProjectLanguage))
++                {
++                    property = "sonar.vbnet.fxcop.reportPath";
++                }
++
++                if (property != null)
++                {
++                    AppendKeyValue(sb, guid, property, fxCopReportFilePath);
++                }
++                else
++                {
++                    Debug.Fail("FxCopReportFilePath is set but the language is unrecognised. Language: " + projectData.Project.ProjectLanguage);
++                }
++            }
++
+             if (projectData.Project.ProjectType == ProjectType.Product)
+             {
+                 sb.AppendLine(guid + @".sonar.sources=\");
+@@ -299,6 +322,20 @@ namespace SonarScanner.MSBuild.Shim
+             }
+         }
+ 
++        private string TryGetFxCopReport(ProjectData projectData)
++        {
++            string fxCopReport = projectData.Project.TryGetAnalysisFileLocation(AnalysisType.FxCop);
++            if (fxCopReport != null && !File.Exists(fxCopReport))
++            {
++                this.logger.LogWarning(@"FxCop report not found: {0}", fxCopReport);
++                fxCopReport = null;
++            }
++
++            return fxCopReport;
++        }
++
++
++
+         #endregion Private methods
+     }
+ }
+diff --git a/src/SonarScanner.MSBuild.Tasks/Targets/SonarQube.Integration.targets b/src/SonarScanner.MSBuild.Tasks/Targets/SonarQube.Integration.targets
+index 920760c..2b94585 100644
+--- a/src/SonarScanner.MSBuild.Tasks/Targets/SonarQube.Integration.targets
++++ b/src/SonarScanner.MSBuild.Tasks/Targets/SonarQube.Integration.targets
+@@ -378,14 +378,159 @@
+         as input to the "ResolveCodeAnalysisRuleSet" target, which sets the property
+         "ResolvedCodeAnalysisRuleset".
+ 
++        To avoid complications, we override the property "CodeAnalysisRuleset" with the path to our FxCop ruleset.
+         We override the property "ResolveCodeAnalysisRuleSet" with the path to our Roslyn ruleset.
+   -->
+ 
++  <!-- **************************************************************************** --> 
++  <!-- Code analysis - FxCop --> 
++  <!-- **************************************************************************** --> 
++  <!-- We want to control whether or FxCop analysis is run or not, and we want to control 
++       the ruleset that is used. 
++ 
++       There may/may not be individual FxCop settings in each project, and the TeamBuild 
++       definition may also specify whether FxCop is to be run or not (the options being 
++       "As configured", "Always", and "Never". 
++ 
++       We need to make sure the FxCop targets get loaded if we want to run FxCop, and then 
++       we need to override any other settings that may exist. 
++ 
++       We ensure the FxCop targets are loaded by setting the $(RunCodeAnalysisOnce). 
++       We then override any FxCop property settings by executing a target to programmatically 
++       update the property values. These values set in this way will take precedence over 
++       any values passed on the MSBuild command line or in <PropertyGroups>. 
++       --> 
++
++
++  <!-- The FxCop targets are conditionally imported so we need to make sure the required condition is true early enough. --> 
++  <!-- SONARMSBRU-193 On C++ projects setting RunCodeAnalysisOnce has unwanted side-effects --> 
++  <!-- Note: $(Language) is already available here. For order evaluation details, see: msbuild /preprocess:out.txt project.proj --> 
++  <PropertyGroup Condition=" $(SonarQubeTempPath) != '' AND ( $(Language) == 'C#' OR $(Language) == 'VB' ) "> 
++    <RunCodeAnalysisOnce>true</RunCodeAnalysisOnce> 
++  </PropertyGroup> 
++ 
+   <PropertyGroup>
+     <SQLanguage Condition="$(Language) == 'C#'">cs</SQLanguage>
+     <SQLanguage Condition="$(Language) == 'VB'">vbnet</SQLanguage>
+   </PropertyGroup>
+ 
++  <!-- Check whether or not FxCop should be executed, even if FxCop isn't installed and all targets depending on RunCodeAnalysis are skipped --> 
++  <Target Name="DetectFxCopRuleset" Condition=" $(SonarQubeTempPath) != '' " 
++        BeforeTargets="CoreCompile"> 
++    <PropertyGroup> 
++      <!-- Compute the ruleset filename --> 
++      <SonarQubeRulesetFileName Condition=" $(SonarQubeRulesetFileName) == ''">SonarQubeFxCop-$(SQLanguage).ruleset</SonarQubeRulesetFileName> 
++
++
++      <!-- Check if the ruleset exists --> 
++      <SonarQubeRulesetFullName>$(SonarQubeConfigPath)\$(SonarQubeRulesetFileName)</SonarQubeRulesetFullName> 
++      <SonarQubeRulesetExists>$([System.IO.File]::Exists($(SonarQubeRulesetFullName)))</SonarQubeRulesetExists> 
++    </PropertyGroup> 
++  </Target> 
++
++
++  <!-- We want to override any properties that have been set declaratively in the project --> 
++  <Target Name="OverrideCodeAnalysisProperties" Condition=" $(SonarQubeTempPath) != '' " 
++          DependsOnTargets="SonarQubeCategoriseProject;DetectFxCopRuleset" 
++          BeforeTargets="RunCodeAnalysis"> 
++
++
++    <PropertyGroup> 
++      <!-- Run FxCop only if the ruleset exists (else it means no FxCop rule is enabled) --> 
++      <SonarQubeRunMSCodeAnalysis>$(SonarQubeRulesetExists)</SonarQubeRunMSCodeAnalysis> 
++
++
++      <!-- Don't run FxCop if the project is excluded --> 
++      <SonarQubeRunMSCodeAnalysis Condition=" $(SonarQubeExclude) == 'true' ">false</SonarQubeRunMSCodeAnalysis> 
++
++
++      <!-- Don't run FxCop if the project is a test one --> 
++      <SonarQubeRunMSCodeAnalysis Condition=" $(SonarQubeTestProject) == 'true' ">false</SonarQubeRunMSCodeAnalysis> 
++    </PropertyGroup> 
++
++
++    <Message Condition="$(SonarQubeRulesetExists) != 'true' " 
++             Importance="normal" 
++             Text="Skipping FxCop analysis: the SonarQube ruleset does not exist. Ruleset: $(SonarQubeRulesetFullName)" /> 
++
++
++    <Message Condition="$(SonarQubeExclude) == 'true' " 
++             Importance="normal" 
++             Text="Skipping FxCop analysis: the project is excluded" /> 
++
++
++    <Message Condition="$(SonarQubeTestProject) == 'true' " 
++             Importance="normal" 
++             Text="Skipping FxCop analysis: the project is a test project" /> 
++
++
++    <Message Condition="$(SonarQubeRunMSCodeAnalysis) == 'true' " 
++             Importance="normal" 
++             Text="Running FxCop analysis using the SonarQube ruleset. Ruleset: $(SonarQubeRulesetFullName)" /> 
++
++
++    <PropertyGroup> 
++      <!-- By the time this target is evaluated, the FxCop targets have evaluated the 
++           $(RunCodeAnalysis) and $(RunCodeAnalysisOnce) properties and used them to 
++           set $(RunCodeAnalysisOnThisProject). If we want to stop code analysis from 
++           running at this point, we need to set $(RunCodeAnalysisOnThisProject). --> 
++      <RunCodeAnalysisOnThisProject>$(SonarQubeRunMSCodeAnalysis)</RunCodeAnalysisOnThisProject> 
++
++
++      <CodeAnalysisRuleSet>$(SonarQubeRulesetFullName)</CodeAnalysisRuleSet> 
++      <CodeAnalysisForceOutput>true</CodeAnalysisForceOutput> 
++      <CodeAnalysisGenerateSuccessFile>true</CodeAnalysisGenerateSuccessFile> 
++      <CodeAnalysisIgnoreGeneratedCode>true</CodeAnalysisIgnoreGeneratedCode> 
++      <CodeAnalysisRuleSetOverrides></CodeAnalysisRuleSetOverrides> 
++
++
++      <!-- Make sure no warnings are treated as errors --> 
++      <TreatWarningsAsErrors>false</TreatWarningsAsErrors> 
++      <WarningsAsErrors></WarningsAsErrors> 
++    </PropertyGroup> 
++  </Target> 
++
++
++  <!-- If FxCop is being run then record the FxCop output file as an analysis result --> 
++  <Target Name="SetFxCopAnalysisResult" 
++          Condition=" $(SonarQubeRunMSCodeAnalysis) == 'true' " 
++          AfterTargets="RunCodeAnalysis" BeforeTargets="WriteSonarQubeProjectData"> 
++
++
++    <!-- TODO: remove this duplicated logic --> 
++    <ItemGroup> 
++      <!-- Work out if there were any managed files to be analyzed. 
++           Exclude any that have the metadata 'SonarQubeExclude' set, or that are auto-generated --> 
++      <SonarQubeManagedFiles Include="@(Compile)" Condition=" %(Compile.SonarQubeExclude) != 'true' AND %(Compile.AutoGen) != 'true' " /> 
++    </ItemGroup> 
++
++
++    <PropertyGroup> 
++      <!-- Work out which types of input files exist--> 
++      <ManagedFilesExist Condition=" @(SonarQubeManagedFiles) != '' ">true</ManagedFilesExist> 
++    </PropertyGroup> 
++
++
++    <ItemGroup Condition=" $(ManagedFilesExist) == 'true' "> 
++      <AnalysisResults Include="$(CodeAnalysisLogFile)"> 
++        <Id>FxCop</Id> 
++      </AnalysisResults> 
++    </ItemGroup> 
++  </Target> 
++
++
++  <!-- If FxCop is not installed, then none of the targets depending on RunCodeAnalysis being executed before or after it will have been executed --> 
++  <Target Name="FailIfFxCopNotInstalled" 
++          Condition=" $(SonarQubeRulesetExists) == 'true' AND $(SonarQubeRunMSCodeAnalysis) == '' " 
++          AfterTargets="WriteSonarQubeProjectData"> 
++    <Error Text="FxCop must be installed when some of its rules are enabled in the SonarQube quality profile. FxCop is included as part of Visual Studio." /> 
++  </Target> 
++
++
++  <!-- **************************************************************************** --> 
++  <!-- End of FxCop section--> 
++  <!-- **************************************************************************** --> 
++ 
+   <!-- **************************************************************************** -->
+   <!-- Roslyn analysis section -->
+   <!-- **************************************************************************** -->
+-- 
+2.22.0.windows.1
+
