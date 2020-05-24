@@ -19,6 +19,7 @@
  */
 
 using FluentAssertions;
+using SonarScanner.MSBuild.PreProcessor.Interfaces;
 
 namespace SonarScanner.MSBuild.PreProcessor.Tests
 {
@@ -47,9 +48,14 @@ namespace SonarScanner.MSBuild.PreProcessor.Tests
             return this.analyzerProvider;
         }
 
+        public IRulesetGenerator CreateRulesetGenerator()
+        {
+            throw new System.NotImplementedException();
+        }
+
         public ISonarQubeServer CreateSonarQubeServer(ProcessedArgs args)
         {
-            args.Should().NotBeNull();
+            //args.Should().NotBeNull();
 
             return this.server;
         }
